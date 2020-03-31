@@ -5,8 +5,261 @@ date: "30/03/2020"
 output: html_document
 ---
 
+(_setting some global options for the scripts in this document, and loading the required packages_)
+
+```{r setoptions, echo=TRUE}
+# Loading the required packages
+library(knitr)
+library(data.table)
+library(ggplot2)
+
+# Setting global script options
+opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
 ## Title
 
 Analysis of the NOAA's Storm Database to determine which types of events are most harmful with respect to public health, and to determine which type of events have the greatest economic consequences. (_Events in this database refer to Storms or any other type of severe weather events, like floods, hurricanes, land slides, and many more_)
 
 ## Synopsis
+
+#### The analysis of the Storm Database involves the following steps:  
+1. Removing 30 columsn from the dataset, except the columns named `EVTYPE`, `FATALITIES`, `INJURIES`, `PROPDMG`, `PROPDMGEXP`, `CROPDMG`, `CROPDMGEXP`  
+2. Selecting only those observations where fatalities, injuries, property and crop damage occur  
+3. Cleaning the exponent values in the dataset, and adding two columns for property and crop damage costs (in USD)  
+4. Creating two tables for total costs of property, crops, anf for both, as well as total number of fatalities, injuries and for both  
+5. Creating two bar plots, wherein the type of events are on the x-axis, and the total property costs and crop costs are on the y-axis for the first one, and the total fatalities and injury numbers are on the y-axis for the second one  
+
+## Data Processing
+
+### 1: Downloading The Compressed Version of the Dataset, and Loading the Data Set into R
+
+```{r downloaddata}
+# Downloading the bzip2-compressed version of the data set
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "StormData.csv.bz2")
+
+# Loading the dataset into R
+stormData <- read.csv("StormData.csv.bz2")
+
+# Converting the data.frame object into a data.table object
+stormDT <- as.data.table(stormData)
+
+```
+
+### 2: Examining the Column Names of the Data Set
+
+```{r}
+colnames(stormDT)
+```
+
+### 3: Data Modification
+
+Removing the columns not required in the analysis  
+
+```{r}
+# Finding columns to remove 
+colToRem <- colnames(stormDT[, !c("EVTYPE",
+                                  "FATALITIES",
+                                  "INJURIES",
+                                  "PROPDMG",
+                                  "PROPDMGEXP",
+                                  "CROPDMG",
+                                  "CROPDMGEXP")])
+# Removing the "extra" columns
+stormDT[, c(colToRem) := NULL]
+
+# Subsetting those data where fatalities or injuries occured.
+stormDT <- stormDT[(EVTYPE != "?" &
+                (INJURIES > 0 | FATALITIES > 0 | PROPDMG > 0 | CROPDMG > 0)), c("EVTYPE",
+                                                                                "FATALITIES",
+                                                                                "INJURIES",
+                                                                                "PROPDMG",
+                                                                                "PROPDMGEXP",
+                                                                                "CROPDMG",
+                                                                                "CROPDMGEXP")]
+
+
+```
+
+### 4: Converting The Exponent Columns into Actual Exponents (_instead of "-,+,H,K", and so on_)
+
+Making the `PROPDMGEXP` and `CROPDMGEXP` columns cleaner so that they can be used for calculations  
+
+```{r}
+# Making all damage exponents capital
+cs <- c("PROPDMGEXP", "CROPDMGEXP")
+stormDT[, (cs) := c(lapply(.SD, toupper)), .SDcols = cs]
+
+# Mapping the property-damage-alphanumeric-exponents to their corresponding numeric values
+propKey <- c("\"\"" = 10^0,
+             "-" = 10^0,
+             "+" = 10^0,
+             "0" = 10^0,
+             "1" = 10^1,
+             "2" = 10^2,
+             "3" = 10^3,
+             "4" = 10^4,
+             "5" = 10^5,
+             "6" = 10^6,
+             "7" = 10^7,
+             "8" = 10^8,
+             "9" = 10^9,
+             "H" = 10^2,
+             "K" = 10^3,
+             "M" = 10^6,
+             "B" = 10^9)
+
+# Mapping the crop-damage-alphanumeric-exponents to their corresponding numeric values
+cropKey <- c("\"\"" = 10^0,
+             "?" = 10^0,
+             "0" = 10^0,
+             "K" = 10^3,
+             "M" = 10^6,
+             "B" = 10^9)
+
+# Adding the numeric values to the dataset
+stormDT[, PROPDMGEXP := propKey[as.character(stormDT[,PROPDMGEXP])]]
+stormDT[is.na(PROPDMGEXP), PROPDMGEXP := 10^0]
+stormDT[, CROPDMGEXP := cropKey[as.character(stormDT[,CROPDMGEXP])]]
+stormDT[is.na(CROPDMGEXP), CROPDMGEXP := 10^0]
+```
+
+### 5: Adding the Economic Cost Columns to the Dataset
+
+The economic damage cost for both properties and crops will be added to the dataset.  
+
+```{r}
+stormDT <- stormDT[, .(EVTYPE,
+                       FATALITIES,
+                       INJURIES,
+                       PROPDMG,
+                       PROPDMGEXP,
+                       PROPDMGCOST = PROPDMG * PROPDMGEXP,
+                       CROPDMG,
+                       CROPDMGEXP,
+                       CROPDMGCOST = CROPDMG * CROPDMGEXP)]
+```
+
+### 6: Calculating Total Property and Crop Damage Costs 
+
+```{r}
+tCost <- stormDT[, .(TotalPropDmgCost = sum(PROPDMGCOST),
+                     TotalCropDmgCost = sum(CROPDMGCOST),
+                     Total_Cost = sum(PROPDMGCOST) + sum(CROPDMGCOST)),
+                 by = .(EVTYPE)]
+
+tCost <- tCost[order(-Total_Cost),]
+
+# Keeping the types of events with the highest total economic damage (top 10)
+tCost <- tCost[1:10,]
+
+```
+
+Showing some of the values of this data table  
+
+```{r}
+head(tCost, 5)
+```
+
+### 7: Calculating Total Fatalities and Injuries
+
+```{r}
+tInjury <- stormDT[, .(TotalFatalities = sum(FATALITIES),
+                       TotalInjuries = sum(INJURIES),
+                       TotalHumanDmg = sum(FATALITIES) + sum(INJURIES)),
+                   by = .(EVTYPE)]
+
+tInjury <- tInjury[order(-TotalFatalities),]
+
+# Keeping the types of events with the highest fatalities (top 10)
+tInjury <- tInjury[1:10,]
+```
+
+Showing some of the values of this data table  
+
+```{r}
+head(tInjury, 5)
+```
+## Results
+
+### 1: Events that are Most Harmful to Population Health
+
+Melting the `tInjury` data table, so that it can plotted using a bar graph
+
+```{r}
+tInjuryMelt <- melt(tInjury, id.vars = "EVTYPE", variable.name = "InjuryType")
+```
+
+Showing some of the values of the molten data table
+
+```{r}
+head(tInjuryMelt, 5)
+```
+
+Creating the bar plot
+
+```{r}
+# Creating the ggplot object for the plot
+healthDmgPlot <- ggplot(tInjuryMelt, aes(x = reorder(EVTYPE, -value), y = value))
+
+# Adding the bar plot to the ggplot object
+healthDmgPlot <- healthDmgPlot + geom_bar(stat = "identity",
+                                          aes(fill = InjuryType),
+                                          position = "dodge")
+
+# Adding labels to the y and x axes
+healthDmgPlot <- healthDmgPlot + ylab("Frequency of Injuries") + xlab("Type of Event")
+
+# Adding a main title to the chart and centering it, and adding a white background
+healthDmgPlot <- healthDmgPlot + ggtitle("Top 10 Events with the most Injuries") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+# Modifying the legend title and labels
+healthDmgPlot <- healthDmgPlot + scale_fill_discrete(name = "Total", labels = c("Fatalities", "Injuries", "Human Damage"))
+
+# Rotating the x-axis division-labels (by 45 degrees)
+healthDmgPlot <- healthDmgPlot + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Printing the plot
+print(healthDmgPlot)
+```
+
+### 2: Events that have the greatest economic consequences
+
+Melting the `tCost` data table, so that it can plotted using a bar graph  
+
+```{r}
+tCostMelt <- melt(tCost, id.vars = "EVTYPE", variable.name = "TypeOfDmg")
+```
+
+Showing some of the values of the molten data table
+
+```{r}
+head(tCostMelt, 5)
+```
+
+Creating the bar plot
+
+```{r}
+# Creating the ggplot object for the plot
+economicLoss <- ggplot(tCostMelt, aes(x = reorder(EVTYPE, -value), y = value))
+
+# Adding the bar plot to the ggplot object
+economicLoss <- economicLoss + geom_bar(stat = "identity",
+                                        aes(fill = TypeOfDmg),
+                                        position = "dodge")
+
+# Adding labels to the y and x axes
+economicLoss <- economicLoss + ylab("Damage Cost (USD)") + xlab("Type of Event")
+
+# Adding a main title to the chart and centering it, and adding a white background
+economicLoss <- economicLoss + ggtitle("Top 10 most Economically Damaging Events") + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+
+# Modifying the legend title and labels
+economicLoss <- economicLoss + scale_fill_discrete(name = "Damage Cost", labels = c("Property", "Crops", "Total"))
+
+# Rotating the x-axis division-labels (by 45 degrees)
+economicLoss <- economicLoss + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Printing the plot
+print(economicLoss)
+```
