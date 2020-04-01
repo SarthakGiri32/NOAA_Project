@@ -1,5 +1,5 @@
 ---
-title: "Exploratory Analysis of the NOAA Storm Database"
+title: "Analysis of the NOAA Storm Database to Determine which Weather Events are the most harmful for Humans, and also those that have the greatest Economic Consequences"
 author: "Sarthak"
 date: "30/03/2020"
 output: html_document
@@ -16,10 +16,6 @@ library(ggplot2)
 # Setting global script options
 opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
-
-## Title
-
-Analysis of the NOAA's Storm Database to determine which types of events are most harmful with respect to public health, and to determine which type of events have the greatest economic consequences. (_Events in this database refer to Storms or any other type of severe weather events, like floods, hurricanes, land slides, and many more_)
 
 ## Synopsis
 
@@ -263,3 +259,7 @@ economicLoss <- economicLoss + theme(axis.text.x = element_text(angle = 45, hjus
 # Printing the plot
 print(economicLoss)
 ```
+
+## Conclusion
+
+Thus, it is clearly evident from the plotted graphs that **Tornadoes** claim the most human lives and have the highest injury rates, and **Floods** have the greatest economic consequences. (_mostly in terms of property damage_)
